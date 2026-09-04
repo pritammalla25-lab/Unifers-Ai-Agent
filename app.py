@@ -3,107 +3,115 @@ from google import genai
 from google.genai import types
 from unifers_knowledge import UNIFERS_KNOWLEDGE
 
-st.set_page_config(
-    page_title="Unifers AI",
-    page_icon="U",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="Unifers AI", page_icon="U", layout="wide", initial_sidebar_state="expanded")
 
-MODEL = "gemini-3.8-flash"
+MODEL = "gemini-3.5-flash-lite"
 
 SYSTEM_INSTRUCTION = """
-You are Unifers AI, an intelligent B2B Sales Intelligence and Prospecting Agent for Unifers.ai.
+You are Unifers AI, the intelligent B2B Sales Intelligence and Prospecting Agent for Unifers.ai.
 
-Your goal is to help users identify the right companies, right people, right timing and right action. Think like a senior SDR, sales researcher, GTM strategist, account research analyst, data enrichment specialist, sales intelligence analyst and AI outreach strategist.
+Answer the user's actual question first. Do not give generic sales advice when the user asks about a specific Unifers product. Use the supplied Unifers knowledge as the source of truth for Unifers specific claims. If current information is needed, web search may be used only for requests that clearly need current or external information.
 
 Core philosophy: Find -> Understand -> Verify -> Score -> Recommend -> Act -> Learn.
-Optimize for qualified conversations, not lead volume.
 
-Conversation behavior:
-Understand the user's goal. Ask only for missing information that is necessary. Reuse information already provided. For broad prospecting requests, clarify ICP when needed.
+Help with ICP definition, company discovery, decision makers, enrichment, verification, buying signals, prospect scoring, company intelligence, outreach, campaign quality, CRM intelligence and next best actions when the required data is available.
 
-Prospect intelligence priorities:
-ICP fit, company relevance, decision maker relevance, buying intent, timing and data confidence.
-When information is available, consider company, website, industry, employees, location, revenue, funding, growth, hiring, technology, executives, decision makers, contact information, developments and buying signals.
+Never invent pricing, customers, features, integrations, people, emails, phone numbers, funding, job titles, buying signals, technology usage, personal information or completed actions. If a field is unavailable, say: I don't have verified information for this field.
 
-Research behavior:
-Separate verified facts from inference and unknown information. Buying signals may indicate relevance but do not prove purchase intent. Use language such as may indicate, suggests and potentially relevant when evidence is not conclusive.
+Separate verified facts from inference. Buying signals can suggest relevance but do not prove purchase intent. Do not claim an action was sent or completed unless a connected system confirms it.
 
-Scoring behavior:
-When enough evidence exists, use a transparent decision support score based on ICP fit, role relevance, company growth, buying intent, data confidence and timing. Do not present the score as scientifically exact.
+For simple product questions, answer directly in 3 to 6 short paragraphs or bullets. For comparisons, use a concise table. For prospecting tasks, explain ICP fit, relevance, timing and confidence. If the user's strategy is weak, say so and improve it.
 
-For high priority prospects explain:
-Why this company?
-Why this person?
-Why now?
-Recommended action.
+Stay focused on Unifers. For unrelated questions, answer briefly and redirect to Unifers.
 
-Outreach:
-Keep cold outreach concise and human. Personalize using verified company events, role responsibilities, hiring, funding, products, technology, business challenges or recent developments. Never invent familiarity or facts.
-
-Data honesty:
-Never invent emails, phone numbers, company facts, funding, job titles, buying signals, technology usage, customer relationships or personal information. If unavailable, say: I don't have verified information for this field.
-
-Action safety:
-Distinguish between recommended, prepared, ready to send, sent and completed. Never claim an action was completed unless a connected system confirms it.
-
-Response style:
-Be concise for simple questions and structured for complex tasks. Use headings, bullets and tables when useful. Be analytical rather than blindly agreeable. If the user's targeting is weak or too broad, explain why and suggest a better approach.
-
-Unifers knowledge:
+UNIFERS KNOWLEDGE:
 """ + str(UNIFERS_KNOWLEDGE)
 
 
 def get_client():
-    api_key = st.secrets.get("GEMINI_API_KEY", "")
-    if not api_key:
-        return None
-    return genai.Client(api_key=api_key)
+    key = st.secrets.get("GEMINI_API_KEY", "")
+    return genai.Client(api_key=key) if key else None
 
 
-def ask_gemini(client, messages):
+def needs_web(question):
+    q = question.lower()
+    words = ["latest", "current", "today", "recent", "news", "research", "website", "who is", "how many", "funding"]
+    return any(word in q for word in words)
+
+
+def ask_gemini(client, messages, use_web=False):
     contents = []
     for message in messages:
         role = "user" if message["role"] == "user" else "model"
-        contents.append(
-            types.Content(
-                role=role,
-                parts=[types.Part(text=message["content"])],
-            )
-        )
-
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-            tools=[types.Tool(google_search=types.GoogleSearch())],
-            max_output_tokens=2500,
-        ),
-    )
+        contents.append(types.Content(role=role, parts=[types.Part(text=message["content"])]))
+    config_args = {
+        "system_instruction": SYSTEM_INSTRUCTION,
+        "max_output_tokens": 1400,
+    }
+    if use_web:
+        config_args["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+    response = client.models.generate_content(model=MODEL, contents=contents, config=types.GenerateContentConfig(**config_args))
     return response.text
+
+
+def local_answer(question):
+    q = question.lower()
+    if "what does unifers" in q or "what is unifers" in q:
+        return "Unifers.ai is a sales intelligence and prospecting platform focused on helping revenue teams find relevant prospects, enrich data, verify information, identify buying signals and act on qualified opportunities.\n\nIts product portfolio includes Data Enrichment, LinkedIn Extension, LinkedIn Contact Finder, APIs, Email Deliverability and Email Warmup.\n\nThe goal is not simply to generate more contacts. The focus is on helping teams find the right prospects, understand why they matter, determine why now and choose the next action."
+    if "products" in q and "unifers" in q:
+        return "Unifers currently has these product areas in the available knowledge base:\n\n1. **Data Enrichment** for enriching incomplete prospect and company information.\n2. **LinkedIn Extension** for browser based LinkedIn prospect workflows.\n3. **LinkedIn Contact Finder** for finding contact information associated with LinkedIn prospects.\n4. **APIs** for programmatic prospect and contact data workflows.\n5. **Email Deliverability** for outbound email delivery quality.\n6. **Email Warmup** for sender reputation and outbound email readiness."
+    if "data enrichment" in q:
+        return "**Unifers Data Enrichment** is designed to enrich incomplete prospect and company information with additional data fields.\n\nFor a sales team, the value is better prospect context and more complete records before qualification or outreach.\n\nI do not have verified information in the current knowledge base for every available enrichment field, pricing tier or coverage limit, so I would not invent those details."
+    if "linkedin contact finder" in q:
+        return "**LinkedIn Contact Finder** is focused on finding contact information associated with LinkedIn prospects.\n\nIt is most relevant when a sales workflow starts with a LinkedIn prospect and needs additional contact information for outreach.\n\nI do not have verified information for specific coverage, pricing or individual contact fields beyond this description."
+    if "api" in q or "apis" in q:
+        return "Yes. Unifers has an **APIs** product area for programmatic prospect and contact data workflows. The available knowledge describes LinkedIn profile enrichment, verified contact information, verification, webhooks and SDK support.\n\nIf you want, I can also explain where the API fits compared with the LinkedIn tools."
+    if "email warmup" in q:
+        return "**Email Warmup** is focused on establishing and maintaining sender reputation before or during outbound email activity. It is relevant when a team is preparing or scaling outbound email and wants to improve sending readiness."
+    if "deliverability" in q:
+        return "**Email Deliverability** is focused on improving the likelihood that outbound email reaches the intended inbox. It is relevant to teams that care about the quality and reliability of outbound email delivery."
+    if "linkedin extension" in q:
+        return "**LinkedIn Extension** is a browser based workflow for working with LinkedIn prospect information. It is relevant when LinkedIn is part of the prospect discovery or research workflow."
+    return None
+
+
+def followups(question, answer):
+    q = question.lower()
+    if "product" in q or "what does" in q or "what is unifers" in q:
+        return ["What products does Unifers offer?", "Which Unifers product is best for contact enrichment?", "How can Unifers help a sales team?"]
+    if "data enrichment" in q:
+        return ["What data can Unifers enrich?", "How does Data Enrichment fit into prospecting?", "Compare Data Enrichment with LinkedIn Contact Finder"]
+    if "linkedin contact" in q:
+        return ["How does LinkedIn Contact Finder work?", "Compare it with Data Enrichment", "What can I do after finding a contact?"]
+    if "api" in q:
+        return ["What does the Unifers API provide?", "Who should use the Unifers API?", "Compare APIs with the LinkedIn Extension"]
+    if "email" in q or "warmup" in q or "deliverability" in q:
+        return ["What is Email Warmup?", "What is Email Deliverability?", "How are Warmup and Deliverability different?"]
+    return ["What products does Unifers offer?", "How does Unifers help sales teams?", "What information do you need to find prospects?"]
 
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "pending_prompt" not in st.session_state:
+    st.session_state.pending_prompt = None
 
 st.markdown("""
 <style>
-[data-testid="stAppViewContainer"] { background: #ffffff; }
-[data-testid="stHeader"] { background: rgba(255,255,255,0.85); }
-.block-container { max-width: 1050px; padding-top: 2rem; padding-bottom: 7rem; }
-.hero { text-align: center; padding: 3.5rem 1rem 2rem; }
-.logo { display:inline-flex; width:52px; height:52px; align-items:center; justify-content:center; border-radius:15px; background:#111827; color:white; font-size:25px; font-weight:800; margin-bottom:18px; }
-.hero h1 { font-size: 2.7rem; letter-spacing:-1.5px; margin:0; color:#111827; }
-.hero p { color:#6b7280; font-size:1.05rem; margin-top:10px; }
-.card { border:1px solid #e5e7eb; border-radius:18px; padding:20px; background:white; height:100%; box-shadow:0 4px 18px rgba(17,24,39,.04); }
-.card-title { font-weight:700; color:#111827; margin-bottom:7px; }
-.card-text { color:#6b7280; font-size:.93rem; line-height:1.5; }
-[data-testid="stChatMessage"] { border-radius:18px; padding:12px 16px; }
-[data-testid="stSidebar"] { border-right:1px solid #e5e7eb; }
-[data-testid="stSidebar"] .block-container { padding-top:1.5rem; }
-.small-note { color:#9ca3af; font-size:.8rem; text-align:center; margin-top:18px; }
+[data-testid="stAppViewContainer"] { background: #f8fafc; }
+[data-testid="stHeader"] { background: transparent; }
+.block-container { max-width: 1080px; padding-top: 1.5rem; padding-bottom: 8rem; }
+.hero { text-align:center; padding: 4rem 1rem 2.5rem; }
+.logo { width:58px; height:58px; display:flex; align-items:center; justify-content:center; margin:0 auto 18px; border-radius:18px; background:#111827; color:#fff; font-weight:800; font-size:26px; box-shadow:0 12px 30px rgba(17,24,39,.14); }
+.hero h1 { margin:0; font-size:3rem; letter-spacing:-2px; color:#111827; }
+.hero p { margin-top:10px; color:#64748b; font-size:1.05rem; }
+.feature { background:#fff; border:1px solid #e2e8f0; border-radius:20px; padding:22px; min-height:132px; box-shadow:0 5px 20px rgba(15,23,42,.04); }
+.feature b { color:#111827; font-size:1rem; }
+.feature span { display:block; margin-top:8px; color:#64748b; font-size:.9rem; line-height:1.5; }
+.follow-title { color:#64748b; font-size:.82rem; margin:16px 0 8px; }
+[data-testid="stChatMessage"] { border-radius:20px; margin-bottom:10px; }
+[data-testid="stSidebar"] { background:#fff; border-right:1px solid #e2e8f0; }
+[data-testid="stSidebar"] .block-container { padding-top:1.2rem; }
+div.stButton > button { border-radius:12px; border:1px solid #e2e8f0; background:#fff; text-align:left; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -111,69 +119,82 @@ with st.sidebar:
     st.markdown("## Unifers AI")
     st.caption("Sales Intelligence Assistant")
     st.divider()
-    st.markdown("### Explore")
-    st.caption("Ask about Unifers products, capabilities, APIs, prospecting, enrichment, LinkedIn workflows and sales intelligence.")
+    st.markdown("### Explore Unifers")
+    st.caption("Products, APIs, enrichment, LinkedIn workflows, email infrastructure and sales intelligence.")
     st.divider()
-    st.markdown("### Suggested questions")
-    starters = [
-        "What does Unifers do?",
-        "What products does Unifers offer?",
-        "Explain Unifers Data Enrichment",
-        "What is the LinkedIn Contact Finder?",
-        "Does Unifers provide APIs?",
-        "How can Unifers help a sales team?",
-    ]
-    for question in starters:
-        if st.button(question, key="starter_" + question, use_container_width=True):
-            st.session_state.pending_prompt = question
-            st.rerun()
-    st.divider()
-    if st.button("New conversation", use_container_width=True):
-        st.session_state.messages = []
-        st.session_state.pop("pending_prompt", None)
+    if st.button("What does Unifers do?", use_container_width=True, key="side_company"):
+        st.session_state.pending_prompt = "What does Unifers do?"
+        st.rerun()
+    if st.button("Explore products", use_container_width=True, key="side_products"):
+        st.session_state.pending_prompt = "What products does Unifers offer?"
+        st.rerun()
+    if st.button("Understand Data Enrichment", use_container_width=True, key="side_enrichment"):
+        st.session_state.pending_prompt = "Explain Unifers Data Enrichment"
+        st.rerun()
+    if st.button("Explore APIs", use_container_width=True, key="side_api"):
+        st.session_state.pending_prompt = "Does Unifers provide APIs?"
         st.rerun()
     st.divider()
-    st.caption("Powered by Gemini")
-    st.caption("Web grounded when useful")
+    if st.button("New conversation", use_container_width=True, key="new_chat"):
+        st.session_state.messages = []
+        st.session_state.pending_prompt = None
+        st.rerun()
+    st.caption("AI answers are grounded in the available Unifers knowledge.")
 
 if not st.session_state.messages:
-    st.markdown("<div class='hero'><div class='logo'>U</div><h1>Unifers AI</h1><p>Ask anything about Unifers</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='hero'><div class='logo'>U</div><h1>Unifers AI</h1><p>Your intelligent assistant for Unifers products and sales intelligence</p></div>", unsafe_allow_html=True)
     cols = st.columns(3)
-    cards = [
-        ("Products", "Understand Unifers products, capabilities and use cases."),
-        ("Sales intelligence", "Explore prospecting, enrichment, buying signals and outreach."),
-        ("Research", "Ask for current information and the assistant can use web grounded research."),
+    features = [
+        ("Understand Unifers", "Get clear answers about products, capabilities and use cases."),
+        ("Find better prospects", "Build ICPs, evaluate buying signals and identify relevant decision makers."),
+        ("Take the next step", "Get recommendations for research, outreach and sales actions."),
     ]
-    for col, (title, text) in zip(cols, cards):
+    for col, item in zip(cols, features):
         with col:
-            st.markdown(f"<div class='card'><div class='card-title'>{title}</div><div class='card-text'>{text}</div></div>", unsafe_allow_html=True)
-    st.markdown("<div class='small-note'>Start with a question below. Unifers AI will keep the conversation in context.</div>", unsafe_allow_html=True)
-else:
-    st.markdown("<div style='padding-bottom:12px'><h1 style='margin-bottom:0'>Unifers AI</h1><div style='color:#6b7280'>Your Unifers product and sales intelligence assistant</div></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='feature'><b>{item[0]}</b><span>{item[1]}</span></div>", unsafe_allow_html=True)
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
+        if message["role"] == "assistant" and message.get("followups"):
+            st.markdown("<div class='follow-title'>Continue the conversation</div>", unsafe_allow_html=True)
+            follow_cols = st.columns(len(message["followups"]))
+            for index, option in enumerate(message["followups"]):
+                with follow_cols[index]:
+                    if st.button(option, key=f"follow_{message['id']}_{index}", use_container_width=True):
+                        st.session_state.pending_prompt = option
+                        st.rerun()
 
 prompt = st.chat_input("Ask anything about Unifers...")
-pending = st.session_state.pop("pending_prompt", None)
-active_prompt = prompt or pending
+active_prompt = prompt or st.session_state.pending_prompt
+st.session_state.pending_prompt = None
 
 if active_prompt:
-    st.session_state.messages.append({"role": "user", "content": active_prompt})
+    st.session_state.messages.append({"role":"user", "content":active_prompt, "id":len(st.session_state.messages)})
     with st.chat_message("user"):
         st.markdown(active_prompt)
     with st.chat_message("assistant"):
+        answer = None
+        local = local_answer(active_prompt)
         client = get_client()
-        if client is None:
-            st.error("Gemini is not connected yet. Add GEMINI_API_KEY in Streamlit Secrets and reload the app.")
-        else:
+        if client:
             try:
                 with st.spinner("Thinking..."):
-                    answer = ask_gemini(client, st.session_state.messages)
-                st.markdown(answer)
-                st.session_state.messages.append({"role": "assistant", "content": answer})
-            except Exception as error:
-                st.error("I could not complete that request right now.")
-                st.caption("Please check the Gemini API key and model access in Streamlit Secrets.")
-                st.caption("Technical detail: " + str(error))
+                    answer = ask_gemini(client, st.session_state.messages, use_web=needs_web(active_prompt))
+            except Exception:
+                answer = local
+        else:
+            answer = local
+        if not answer:
+            answer = "I can help with Unifers products, APIs, enrichment, LinkedIn workflows, email infrastructure, prospecting, buying signals, scoring and outreach. Tell me what you want to know, and I will answer from the available Unifers knowledge."
+        st.markdown(answer)
+        suggestions = followups(active_prompt, answer)
+        message_id = len(st.session_state.messages)
+        st.session_state.messages.append({"role":"assistant", "content":answer, "followups":suggestions, "id":message_id})
+        st.markdown("<div class='follow-title'>Continue the conversation</div>", unsafe_allow_html=True)
+        follow_cols = st.columns(len(suggestions))
+        for index, option in enumerate(suggestions):
+            with follow_cols[index]:
+                if st.button(option, key=f"new_follow_{message_id}_{index}", use_container_width=True):
+                    st.session_state.pending_prompt = option
+                    st.rerun()
