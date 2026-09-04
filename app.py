@@ -10,7 +10,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.6-flash"
 
 SYSTEM_INSTRUCTION = """
 You are Unifers AI, a helpful product and sales intelligence assistant for Unifers.ai.
@@ -56,7 +56,6 @@ def ask_gemini(client, messages):
         contents=contents,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_INSTRUCTION,
-            temperature=0.35,
             max_output_tokens=1800,
         ),
     )
