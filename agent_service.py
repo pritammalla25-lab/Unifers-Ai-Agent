@@ -7,7 +7,7 @@ import urllib.error
 from typing import Dict, List
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
@@ -32,32 +32,22 @@ UNIFERS PUBLIC KNOWLEDGE:
 
 app = FastAPI(
     title=APP_NAME,
-    version="1.0.0",
-    description="Local first Unifers sales intelligence agent. Uses Ollama when available and a deterministic knowledge fallback when it is not.",
+    version="1.1.0",
+    description="Local first Unifers sales intelligence agent with chat, memory, Ollama and optional live prospect research.",
 )
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 SESSIONS: Dict[str, List[dict]] = {}
-
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     session_id: str | None = None
-
 
 class ChatResponse(BaseModel):
     session_id: str
     answer: str
     model: str
     suggestions: List[str] = []
-
 
 def fallback_answer(question: str) -> str:
     q = question.lower().strip()
@@ -67,9 +57,9 @@ def fallback_answer(question: str) -> str:
     if "product" in q and "unifers" in q:
         return "Unifers product areas:\n\n" + "\n".join(f"• {p}" for p in products)
     if "data enrichment" in q:
-        return "Data Enrichment turns partial prospect or company records into richer profiles. The public knowledge describes information such as emails, phone numbers and social links. Current pricing and exact limits are not verified here."
+        return "Data Enrichment turns partial prospect or company records into richer profiles. Publicly described information includes emails, phone numbers and social links. Current pricing and exact limits are not verified here."
     if "linkedin contact finder" in q or "contact finder" in q:
-        return "LinkedIn Contact Finder is designed to find verified business contact information from LinkedIn prospects. The public knowledge describes email and phone lookup, bulk enrichment and export workflows. Treat detailed coverage and marketing accuracy claims as public product claims, not independent guarantees."
+        return "LinkedIn Contact Finder is designed to find verified business contact information from LinkedIn prospects. Publicly described capabilities include email and phone lookup, bulk enrichment and export workflows. Detailed coverage should be treated as a public product claim unless independently verified."
     if "linkedin extension" in q:
         return "LinkedIn Extension is a browser based workflow for working with prospect information while browsing LinkedIn. It is useful when LinkedIn is part of prospect discovery and research."
     if "api" in q or "apis" in q:
@@ -84,7 +74,6 @@ def fallback_answer(question: str) -> str:
         return "The next step is to verify relevance, identify the strongest current signal, decide why the prospect should care now, select the right channel, personalize the message and track the result."
     return "I can help with Unifers products, prospecting, ICP design, buying signals, enrichment, LinkedIn workflows, APIs, email infrastructure and sales next actions. Ask me a specific question and I will answer it directly."
 
-
 def suggestions(question: str) -> List[str]:
     q = question.lower()
     if "prospect" in q or "icp" in q:
@@ -96,7 +85,6 @@ def suggestions(question: str) -> List[str]:
     if "email" in q or "warmup" in q or "deliverability" in q:
         return ["Explain Email Warmup", "Explain Deliverability", "How are they different?"]
     return ["What products does Unifers offer?", "How can I find better prospects?", "What should I do next?"]
-
 
 def ollama_chat(history: List[dict]) -> str | None:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -111,16 +99,17 @@ def ollama_chat(history: List[dict]) -> str | None:
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
         return None
 
-
 @app.get("/", response_class=HTMLResponse)
 def home() -> str:
     return HTML_PAGE
-
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": APP_NAME, "ollama_model": OLLAMA_MODEL}
 
+@app.get("/capabilities")
+def capabilities() -> dict:
+    return {"chat": True, "conversation_memory": True, "unifers_knowledge": True, "local_ollama": True, "live_google_research": bool(os.getenv("GEMINI_API_KEY")), "prospect_research": True, "api_docs": "/docs", "model": OLLAMA_MODEL}
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(body: ChatRequest) -> ChatResponse:
@@ -135,25 +124,25 @@ def chat(body: ChatRequest) -> ChatResponse:
     SESSIONS[session_id] = history[-MAX_HISTORY:]
     return ChatResponse(session_id=session_id, answer=answer, model=model, suggestions=suggestions(body.message))
 
-
 @app.delete("/sessions/{session_id}")
 def clear_session(session_id: str) -> dict:
     SESSIONS.pop(session_id, None)
     return {"status": "cleared", "session_id": session_id}
 
-
-HTML_PAGE = r'''<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unifers AI</title>
-<style>
-:root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:#111827;background:#f7f9fc}*{box-sizing:border-box}body{margin:0}.shell{max-width:1050px;margin:auto;min-height:100vh;display:flex;flex-direction:column;padding:28px 22px}.top{display:flex;align-items:center;gap:12px}.logo{width:42px;height:42px;border:1px solid #e2e7ee;border-radius:13px;padding:7px;background:white}.name{font-weight:800}.sub{font-size:12px;color:#8a94a3;margin-top:2px}.hero{text-align:center;padding:70px 10px 34px}.hero h1{font-size:52px;letter-spacing:-2.8px;margin:15px 0 8px}.hero p{color:#6b7788;margin:0}.chips{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:22px}.chip{border:1px solid #dce3ec;background:white;border-radius:999px;padding:10px 14px;cursor:pointer}.chat{flex:1}.msg{display:flex;margin:16px 0}.msg.user{justify-content:flex-end}.bubble{max-width:78%;padding:14px 16px;border-radius:18px;white-space:pre-wrap;line-height:1.5}.user .bubble{background:#111827;color:white}.assistant .bubble{background:white;border:1px solid #e2e7ee}.composer{position:sticky;bottom:0;background:linear-gradient(transparent,#f7f9fc 20%);padding:25px 0 5px}.box{display:flex;background:white;border:1px solid #dce3ec;border-radius:18px;padding:8px;box-shadow:0 12px 30px rgba(15,23,42,.07)}textarea{border:0;outline:0;resize:none;flex:1;padding:12px;font:inherit;min-height:46px}.send{border:0;border-radius:13px;background:#111827;color:white;padding:0 19px;cursor:pointer}.status{font-size:11px;color:#8a94a3;text-align:center;margin-top:8px}.suggestions{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 20px}.suggestions button{border:1px solid #dce3ec;background:white;border-radius:12px;padding:8px 11px;cursor:pointer}@media(max-width:650px){.hero h1{font-size:40px}.bubble{max-width:90%}}
-</style></head>
-<body><main class="shell"><header class="top"><img class="logo" src="https://unifers.ai/favicon.ico"><div><div class="name">Unifers AI</div><div class="sub">Sales Intelligence Assistant</div></div></header>
-<section class="hero" id="hero"><img class="logo" src="https://unifers.ai/favicon.ico"><h1>Unifers AI</h1><p>Ask about products, prospects, APIs and sales intelligence.</p><div class="chips"><button class="chip" onclick="ask('What does Unifers do?')">Understand Unifers</button><button class="chip" onclick="ask('What products does Unifers offer?')">Explore products</button><button class="chip" onclick="ask('How can I find better prospects?')">Find prospects</button></div></section>
-<section class="chat" id="chat"></section><section class="composer"><div class="box"><textarea id="input" placeholder="Ask Unifers AI anything..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea><button class="send" onclick="send()">Send</button></div><div class="status" id="status">Local agent ready</div></section></main>
-<script>
+HTML_PAGE = r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unifers AI</title><style>
+:root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:#111827;background:#f7f9fc}*{box-sizing:border-box}body{margin:0}.shell{max-width:1050px;margin:auto;min-height:100vh;display:flex;flex-direction:column;padding:28px 22px}.top{display:flex;align-items:center;gap:12px}.logo{width:42px;height:42px;border:1px solid #e2e7ee;border-radius:13px;padding:7px;background:white}.name{font-weight:800}.sub{font-size:12px;color:#8a94a3;margin-top:2px}.hero{text-align:center;padding:70px 10px 34px}.hero h1{font-size:52px;letter-spacing:-2.8px;margin:15px 0 8px}.hero p{color:#6b7788;margin:0}.chips{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:22px}.chip{border:1px solid #dce3ec;background:white;border-radius:999px;padding:10px 14px;cursor:pointer}.chat{flex:1}.msg{display:flex;margin:16px 0}.msg.user{justify-content:flex-end}.bubble{max-width:78%;padding:14px 16px;border-radius:18px;white-space:pre-wrap;line-height:1.5}.user .bubble{background:#111827;color:white}.assistant .bubble{background:white;border:1px solid #e2e7ee}.composer{position:sticky;bottom:0;background:linear-gradient(transparent,#f7f9fc 20%);padding:25px 0 5px}.box{display:flex;background:white;border:1px solid #dce3ec;border-radius:18px;padding:8px;box-shadow:0 12px 30px rgba(15,23,42,.07)}textarea{border:0;outline:0;resize:none;flex:1;padding:12px;font:inherit;min-height:46px}.send{border:0;border-radius:13px;background:#111827;color:white;padding:0 19px;cursor:pointer}.send:disabled{opacity:.5;cursor:wait}.status{font-size:11px;color:#8a94a3;text-align:center;margin-top:8px}.suggestions{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 20px}.suggestions button{border:1px solid #dce3ec;background:white;border-radius:12px;padding:8px 11px;cursor:pointer}.typing{display:inline-flex;gap:4px}.typing i{width:6px;height:6px;border-radius:50%;background:#8a94a3;animation:b 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}@keyframes b{50%{opacity:.2}}@media(max-width:650px){.hero h1{font-size:40px}.bubble{max-width:90%}}
+</style></head><body><main class="shell"><header class="top"><img class="logo" src="https://unifers.ai/favicon.ico"><div><div class="name">Unifers AI</div><div class="sub">Sales Intelligence Assistant</div></div></header><section class="hero" id="hero"><img class="logo" src="https://unifers.ai/favicon.ico"><h1>Unifers AI</h1><p>Research prospects, understand Unifers and decide what to do next.</p><div class="chips"><button class="chip" onclick="ask('What does Unifers do?')">Understand Unifers</button><button class="chip" onclick="ask('What products does Unifers offer?')">Explore products</button><button class="chip" onclick="ask('How can I find better prospects?')">Find prospects</button></div></section><section class="chat" id="chat"></section><section class="composer"><div class="box"><textarea id="input" placeholder="Ask Unifers AI anything..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea><button class="send" id="send" onclick="send()">Send</button></div><div class="status" id="status">Local agent ready</div></section></main><script>
 let sid=localStorage.getItem('unifers_session')||null;
 function esc(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
 function add(role,text,sugs=[]){const c=document.getElementById('chat');const d=document.createElement('div');d.className='msg '+role;d.innerHTML='<div class="bubble">'+esc(text)+'</div>';c.appendChild(d);if(role==='assistant'&&sugs.length){const x=document.createElement('div');x.className='suggestions';sugs.forEach(v=>{const b=document.createElement('button');b.textContent=v;b.onclick=()=>ask(v);x.appendChild(b)});c.appendChild(x)}window.scrollTo(0,document.body.scrollHeight)}
+function typing(){const c=document.getElementById('chat');const d=document.createElement('div');d.id='typing';d.className='msg assistant';d.innerHTML='<div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>';c.appendChild(d);window.scrollTo(0,document.body.scrollHeight)}
 async function ask(text){document.getElementById('hero').style.display='none';document.getElementById('input').value=text;await send()}
-async function send(){const el=document.getElementById('input');const text=el.value.trim();if(!text)return;el.value='';document.getElementById('hero').style.display='none';add('user',text);document.getElementById('status').textContent='Thinking...';try{const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,session_id:sid})});if(!r.ok)throw new Error(await r.text());const d=await r.json();sid=d.session_id;localStorage.setItem('unifers_session',sid);add('assistant',d.answer,d.suggestions);document.getElementById('status').textContent='Using '+d.model}catch(e){add('assistant','The agent could not process that request. Check the terminal for the server error.');document.getElementById('status').textContent='Connection error'}}
+async function send(){const el=document.getElementById('input'),btn=document.getElementById('send');const text=el.value.trim();if(!text||btn.disabled)return;el.value='';document.getElementById('hero').style.display='none';add('user',text);typing();btn.disabled=true;document.getElementById('status').textContent='Thinking...';try{const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,session_id:sid})});if(!r.ok)throw new Error(await r.text());const d=await r.json();sid=d.session_id;localStorage.setItem('unifers_session',sid);document.getElementById('typing')?.remove();add('assistant',d.answer,d.suggestions);document.getElementById('status').textContent='Using '+d.model}catch(e){document.getElementById('typing')?.remove();add('assistant','The agent could not process that request. Check the terminal for the server error.');document.getElementById('status').textContent='Connection error'}finally{btn.disabled=false;el.focus()}}
 </script></body></html>'''
+
+# Import the optional research routes after all core definitions exist.
+# This avoids circular initialization while ensuring /research is registered.
+try:
+    import agent_plus  # noqa: F401,E402
+except Exception:
+    pass
