@@ -2,4 +2,4 @@
 setlocal
 cd /d "%~dp0"
 python -m pip install -r requirements.txt
-python -m uvicorn agent_service:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn agent_plus:app --host 127.0.0.1 --port 8000 --reload
